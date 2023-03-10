@@ -1,0 +1,466 @@
+---
+title: "PySpark-ML-RandomForestClassifier"
+author: "Luis Jesus TI"
+date: "2023-03-09"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Python e Machine Learning
+
+Este código foi desenvolvido com objetivo de compartilhar conhecimentos com outras pessoas que desejam conhecer e trabalhar com Python e Machine Learning. A aplicação trata os dados de Acidente da Polícia Rodoviária Federal - PRF para treinamento e classificação dos acidentes como graves ou não graves, utilizando-se o algoritmo Random Forest Classifier.
+
+Trata-se de um código desenvolvido unicamente para utilização da tecnologia Python, portanto não houve uma análise aprofundada das classificações realizadas pelo Machine Learning.
+
+
+## De onde baixar os dados?
+
+Os dados utilizados utilizados neste trabalho foram os agrupados por ocorrência, disponíveis no link: https://www.gov.br/prf/pt-br/acesso-a-informacao/dados-abertos/dados-abertos-acidentes. 
+
+
+## Instalação de pacotes
+
+Esta seção é para instalação das bibliotecas que serão utilizadas para o perfeito funcionamento do programa.
+
+As linhas se encontram comentadas por não serem necessárias, uma vez que os pacotes já foram instalados. 
+
+
+```{python}
+#!pip install pandas
+#!pip install -U scikit-learn
+
+```
+
+
+## Imports dos pacotes
+
+
+Carga dos pacotes para execução do programa.
+
+```{python}
+####################################
+#  Imports
+
+# 
+import pandas as pd
+import numpy as np
+
+# utilidades
+from datetime import date
+from datetime import datetime
+
+# retirar mensagens de warnings
+import warnings
+warnings.filterwarnings("ignore")
+
+
+# biblioteca para treinamento e teste
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+
+
+```
+
+## Tratamento dos Dados
+
+Este exemplo utiliza dados dos de acidentes entre os anod de 2016 e 2022.
+
+Altere o valor da variável `qtd_anos_processamento` de 1 até 7 para processar os registros conforme a tabela a seguir:
+
+| qtd_anos_prodessamento  | Dados dos Acidentes do(s) ano(s)   |
+| ------- | -------- |
+| 1   | 2016    |
+| 2   | 2016; e 2017    |
+| 3   | 2016; 2017; e 2018    |
+| 4   | 2016; 2017; 2018;e 2019    |
+| 5   | 2016; 2017; 2018; 2019; e 2020    |
+| 6   | 2016; 2017; 2018; 2019; 2020; e 2021    |
+| 7   | 2016; 2017; 2018; 2019; 2020; 2021; e 2022    |
+
+
+```{python}
+####################################
+# Quantidade de anos de dados de acidentes a serem processados
+# 1 = 2016 | 2 = 2016 e 2017 | ... | 7 = 2016 até 2021
+
+qtd_anos_processamento = 7
+ 
+```
+
+
+### Carga dos Dados
+
+A carga dos dados é realizada pela função definida no trecho de código abaixo que carrega dados de arquivos no formato CSV para o Pandas DataFrame.
+
+```{python}
+####################################
+#  Procedures e Funções
+
+####################################
+#  Imports
+
+# função para carregar os arquivos de acidentes de trânsito
+def _carrega_arquivos(_ano, df, _separador, _enconding):
+    print(f"Início da carga do arquivo de acidentes de {_ano}....", datetime.today())
+    
+    # Carregar o arquivo
+    dftmp = pd.read_csv(f"./dados/datatran{_ano}.csv", dtype={'br': 'str', 'id': 'int64'}, encoding=_enconding, decimal=",", sep=_separador, parse_dates=True)
+
+
+    # Upper em campos string
+    dftmp['causa_acidente'] = dftmp['causa_acidente'].str.upper()
+    dftmp['tipo_acidente'] = dftmp['tipo_acidente'].str.upper()
+    dftmp["classificacao_acidente"] = dftmp["classificacao_acidente"].str.upper()
+    dftmp["fase_dia"] = dftmp["fase_dia"].str.upper()
+    dftmp["sentido_via"] = dftmp["sentido_via"].str.upper()
+    dftmp["condicao_metereologica"] = dftmp["condicao_metereologica"].str.upper()
+    dftmp["tipo_pista"] = dftmp["tipo_pista"].str.upper()
+    dftmp["tracado_via"] = dftmp["tracado_via"].str.upper()
+    dftmp["uso_solo"] = dftmp["uso_solo"].str.upper()
+    dftmp['dia_semana'] = dftmp['dia_semana'].str.upper()
+
+    # retirar espaços em branco
+    dftmp["classificacao_acidente"] = dftmp["classificacao_acidente"].str.strip()
+    dftmp["causa_acidente"] = dftmp["causa_acidente"].str.strip()
+    dftmp["tipo_acidente"] = dftmp["tipo_acidente"].str.strip()
+    dftmp["fase_dia"] = dftmp["fase_dia"].str.strip()
+    dftmp["sentido_via"] = dftmp["sentido_via"].str.strip()
+    dftmp["condicao_metereologica"] = dftmp["condicao_metereologica"].str.strip()
+    dftmp["tipo_pista"] = dftmp["tipo_pista"].str.strip()
+    dftmp["tracado_via"] = dftmp["tracado_via"].str.strip()
+    dftmp["uso_solo"] = dftmp["uso_solo"].str.strip()
+    dftmp['dia_semana'] = dftmp['dia_semana'].str.strip()
+
+    # Transformar km em numérico
+    dftmp["km"] = pd.to_numeric(dftmp["km"])
+    
+    # Transformar o campo no tipo Datetime
+    dftmp["data_inversa"] = pd.to_datetime(dftmp["data_inversa"])
+
+    # Campo Hora e minuto
+    dftmp["horario"] = pd.to_datetime(dftmp["horario"])
+
+    df = pd.concat([df, dftmp], axis=0)
+    print(f"Fim da carga do arquivo de acidentes de {_ano}....", datetime.today())
+    print("Total de registros carregados...", len(dftmp))
+    del dftmp
+    return df
+
+```
+
+
+O trecho de código abaixo gera um DataFrame sem dados, somente com a estrutura do CSV.
+
+
+```{python}
+####################################
+# Montar a estrutura para carregar os arquivos com ela
+
+## Criar um dataframe vazio para concatenação a partir da carga de um dos arquivos
+df1 = pd.read_csv("./dados/datatran2021.csv", sep=";", dtype={'br': 'str', 'id': 'int64'}, decimal=",", encoding="latin1", nrows=0)
+
+# Extract column names into a list
+column_names = [x for x in df1.columns]
+
+# Create empty DataFrame with those column names
+dft = pd.DataFrame(columns=column_names)    
+
+# Apagar o DataFrame 
+del df1
+
+```
+
+
+Neste trecho do código é realizada a carga do(s) arquivo(s) considerando a variável `qtd_anos_processamento`, conforme explicação anterior. 
+
+
+```{python}
+# Realização da carga do arquivos para dataframe
+# parâmetros: ano dos regitros, dataframe, separador, encoding
+
+if qtd_anos_processamento >= 1:
+    dft = _carrega_arquivos("2016", dft, ";","latin1")
+if qtd_anos_processamento >= 2:
+    dft = _carrega_arquivos("2017", dft, ";","latin1")
+if qtd_anos_processamento >= 3:
+    dft = _carrega_arquivos("2018", dft, ";","latin1")
+if qtd_anos_processamento >= 4:
+    dft = _carrega_arquivos("2019", dft, ";","latin1")
+if qtd_anos_processamento >= 5:
+    dft = _carrega_arquivos("2020", dft, ";","latin1")
+if qtd_anos_processamento >= 6:
+    dft = _carrega_arquivos("2021", dft, ";","latin1")
+if qtd_anos_processamento >= 7:
+    dft = _carrega_arquivos("2022", dft, ";","latin1")
+
+```
+
+
+### TARGET
+
+Este código atualiza a coluna target, considerando o seguinte:
+
+Os acidentes graves são os que tem `mortos > 0` ou `feridos_graves > 0`, portanto, os acidentes graves são os que apresentam a soma desses dois campos seja maior que 0 (zero).
+
+```{python}
+####################################
+# Criar coluna target e preencher com classificação de acidente grave
+# O acidente é grave quando há mortos ou feridos gráves --> target = 1
+
+# marcar targets
+dft['target'] = np.where(dft['mortos'] + dft['feridos_graves'] > 0, 1, 0)
+
+```
+
+
+### Dados 
+
+### Campos que não fazem parte do estudo
+
+Os campos que não serão objeto de avaliação pelo Classificador, são retirados do DataFrame.
+
+
+### Limpeza Registros com valores Nulos
+
+Deletar do dataframe os registros que tenham campos nulos.
+
+```{python}
+
+dft = dft.dropna(subset=["tipo_acidente","classificacao_acidente","fase_dia", "condicao_metereologica"])
+
+```
+
+
+### Acidentes com vítimas
+
+Para o estudo, somente interessam os registros de acidenes com vítimas. Assim, faz-se a limpeza dos registros de acidentes classificados (classificao_acidente) como 'Ignorados' e como 'Sem Vítimas'.
+
+O quantitativo resultante dessa operação fica listado após o código.
+
+```{python}
+####################################
+# Retirar registros que não farão parte da classificação
+# Deixar somente os registros de acidentes com vítimas
+
+# Filtrar
+
+print("Retirada de registros de acidentes sem vítimas e ignorados ....")
+print("Total de registros no Dataframe antes da limpeza = ", len(dft))
+
+dft_filtrado = dft['classificacao_acidente']!='IGNORADOS'
+dft = dft[dft_filtrado]
+
+print("Total de registros no Dataframe após a limpeza de 'Ignorados' = ", len(dft))
+
+dft_filtrado = dft['classificacao_acidente']!='SEM VÍTIMAS'
+dft = dft[dft_filtrado]
+print("Total de registros no Dataframe após a limpeza de 'Sem Vítimas' = ", len(dft))
+
+```
+
+
+```{python}
+####################################
+# Apagar colunas que não serão utilizadas no processamento
+
+# colunas para deletar
+to_delete= ['id'
+           ,'km'
+           ,'data_inversa'
+           ,'uf'
+           ,'br'
+           ,'municipio'
+           ,'mortos'
+           ,'feridos'
+           ,'feridos_leves'
+           ,'feridos_graves'
+           ,'ilesos'
+           ,'ignorados'
+           ,'mortos'  
+           ,'feridos_leves'
+           ,'feridos_graves'
+           ,'ilesos'
+           ,'ignorados'
+           ,'latitude'
+           ,'longitude'
+           ,'regional'
+           ,'delegacia'
+           ,'uop'
+           ,'classificacao_acidente'
+           ,'horario'
+           ]  
+
+# deletar colunas
+dft = dft.drop(columns=to_delete)
+
+len(dft)
+```
+
+
+O trecho de código abaixo, prepara as colunas categóricas para o Machine Learning.
+
+```{python}
+####################################
+#  Transformar os dados para o classificador
+
+df2classificafor = pd.get_dummies(dft)
+
+```
+
+Este trecho de código, cria função para divisão do Data Frame em dados para Treinamento e Teste.
+
+```{python} 
+
+####################################
+# Função para split de dados
+
+def split2classificaror(df):
+
+
+    # Definição do X e y para o ML
+    X = df.drop(['target'], axis=1).copy()
+    y = df['target'].copy()
+
+    # Split para o modelo
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.7)
+    
+    # Verificar shape dos dados de treino e teste
+    return   X_train, X_test, y_train, y_test
+
+```
+
+
+# Classificação dos acidentes pelo RandonForestClassifier 
+
+Este trecho do código submete os dados (output) ao Classificador (RandonForestClassifier) 5 vezes (`m=5`) e registra o tempo de processamento do processamento e a acurácia de cada uma das rodadas. Ao final, temos o registro do tempo e acurária de cada uma das rodadas.
+
+
+```{python} 
+####################################
+#  Classificar
+
+#rfc = RandomForestClassifier(max_depth=5, random_state=0)
+rfc = RandomForestClassifier()
+
+# loop para gerar estatística
+m = 5
+
+total_registros = len(df2classificafor)
+
+resultado = []
+l_start_fit = []
+l_stop_fit = []
+l_start_proba = []
+l_stop_proba = []
+l_start_predict = []
+l_stop_predict = []
+l_acuracia = []
+l_total_registros = []
+l_rodada = []
+
+
+for i in range(m):
+
+    # split treino e teste
+    X_train, X_test, y_train, y_test = split2classificaror(df2classificafor)
+
+    # executar
+    start_fit = datetime.today()
+    print("Start : Random Forest Classifier Train do modelo ....", start_fit)
+    rfc.fit(X_train, y_train)
+    stop_fit = datetime.today()
+    print("Stop  : Random Forest Classifier Train do modelo ....", stop_fit)
+
+    ####################################
+    # probabilidade de predição
+    start_proba = datetime.today()
+    print("Start : Predict_proba Train do modelo ....", start_proba)
+    y_pred_train_proba = rfc.predict_proba(X_train)
+    stop_proba = datetime.today()
+    print("Stop  : Predict_proba Train do modelo ....", stop_proba)
+    print('Probabilidade do modelo prever como acidente não grave = ',(100*y_pred_train_proba[3][0]).round(2),'%.')
+    print('Probabilidade do modelo prever como acidente grave = ',(100*y_pred_train_proba[3][1]).round(2),'%.')
+
+    ####################################
+    #  Probabilidades do modelo
+    start_predict = datetime.today()
+    print(f"Start : Predict do modelo ....", start_predict)
+    predict = rfc.predict(X_test)
+    stop_predict = datetime.today()
+    print(f"Finish: Predict do modelo ....", stop_predict)
+    
+    ####################################
+    #  Validar acurária do modelo
+    acuracia_teste = 100 * (predict == y_test).sum() / len(y_test)
+    print('No teste, o modelo acertou {:.2f}% das previsões na base de teste.'.format(acuracia_teste))
+    
+    # guardar resultado
+    rodada = [start_fit, stop_fit, start_proba, stop_proba, start_predict, stop_predict, acuracia_teste]
+    resultado.append(rodada)
+    l_start_fit.append(start_fit)
+    l_stop_fit.append(stop_fit)
+    l_start_proba.append(start_proba)
+    l_stop_proba.append(stop_proba)
+    l_start_predict.append(start_predict)
+    l_stop_predict.append(stop_predict)
+    l_acuracia.append(acuracia_teste)
+    l_total_registros.append(total_registros)
+    l_rodada.append(qtd_anos_processamento)
+
+df_resultado = pd.DataFrame(zip(l_rodada, l_total_registros, l_start_fit, l_stop_fit, l_start_proba, l_stop_proba, l_start_predict, l_stop_predict, l_acuracia),
+                            columns = ['rodada','total_registros', 'start_fit','stop_fit','start_proba', 'stop_proba', 'start_predict','stop_predict', 'acuracia'])
+
+
+```
+
+### Tempo e acurácia do modelo
+
+O resultado das 5 rodadas são carregados no Pandas DataFrame df_resultado
+
+```{python}
+####################################
+# Cria dataframe com os resultados do processamento de loop
+
+df_resultado = pd.DataFrame(zip(l_rodada
+                              , l_total_registros
+                              , l_start_fit
+                              , l_stop_fit
+                              , l_start_predict
+                              , l_stop_predict
+                              , l_acuracia),
+                            columns = [ 'rodada'
+                                      , 'total_registros'
+                                      , 'start_fit'
+                                      , 'stop_fit'
+                                      , 'start_predict'
+                                      , 'stop_predict'
+                                      , 'acuracia'])
+
+df_resultado['tempo_fit'] = df_resultado['stop_fit'] - df_resultado['start_fit']
+
+df_resultado
+
+```
+```{python}
+####################################
+# Gravar processamento em CSV
+
+df_resultado.to_csv(f"./dados/processamento{qtd_anos_processamento}.csv")
+
+```
+
+
+## Final
+
+Chegamos ao final! Espero que este pequeno exemplo possa te ajudar de alguma forma no trabalho com Python 
+
+Desejo sucesso! 
+
+
+
+
